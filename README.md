@@ -60,6 +60,7 @@ dist/PulseDialSetup-x64.exe
 The installer:
 
 - Installs `PulseDial.exe` to `%LOCALAPPDATA%\Programs\PulseDial`.
+- Detects an existing per-user PulseDial install and removes it before installing the new version.
 - Creates Start Menu shortcuts.
 - Registers PulseDial in Windows Apps & Features for uninstall.
 - Enables start-at-login by default through the current user's `Run` registry key.

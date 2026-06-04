@@ -45,8 +45,28 @@ Function .onInit
   ${EndIf}
 FunctionEnd
 
+Function UninstallExisting
+  ReadRegStr $R0 HKCU "${APP_UNINSTALL_KEY}" "InstallLocation"
+  ${If} $R0 != ""
+    ${If} ${FileExists} "$R0\Uninstall.exe"
+      DetailPrint "Existing ${APP_NAME} installation found. Removing it first..."
+      nsExec::ExecToLog 'taskkill /IM "${APP_EXE}" /F'
+      ExecWait '"$R0\Uninstall.exe" /S'
+    ${EndIf}
+  ${Else}
+    ReadRegStr $R1 HKCU "${APP_UNINSTALL_KEY}" "UninstallString"
+    ${If} $R1 != ""
+      DetailPrint "Existing ${APP_NAME} uninstall entry found. Running uninstall first..."
+      nsExec::ExecToLog 'taskkill /IM "${APP_EXE}" /F'
+      ExecWait '$R1 /S'
+    ${EndIf}
+  ${EndIf}
+FunctionEnd
+
 Section "${APP_NAME}" SEC_APP
   SectionIn RO
+
+  Call UninstallExisting
 
   SetOutPath "$INSTDIR"
   File "..\build\${APP_EXE}"
@@ -62,7 +82,7 @@ Section "${APP_NAME}" SEC_APP
   WriteRegStr HKCU "${APP_UNINSTALL_KEY}" "Publisher" "${APP_PUBLISHER}"
   WriteRegStr HKCU "${APP_UNINSTALL_KEY}" "InstallLocation" "$INSTDIR"
   WriteRegStr HKCU "${APP_UNINSTALL_KEY}" "DisplayIcon" "$INSTDIR\${APP_EXE}"
-  WriteRegStr HKCU "${APP_UNINSTALL_KEY}" "UninstallString" "$INSTDIR\Uninstall.exe"
+  WriteRegStr HKCU "${APP_UNINSTALL_KEY}" "UninstallString" '"$INSTDIR\Uninstall.exe"'
   WriteRegDWORD HKCU "${APP_UNINSTALL_KEY}" "NoModify" 1
   WriteRegDWORD HKCU "${APP_UNINSTALL_KEY}" "NoRepair" 1
 SectionEnd
