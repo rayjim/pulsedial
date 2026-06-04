@@ -1045,8 +1045,9 @@ private:
 
         RECT rect{};
         GetWindowRect(hwnd_, &rect);
-        const int width = compactMode_ ? kCompactWidth : kWindowWidth;
-        const int height = compactMode_ ? kCompactHeight : kWindowHeight;
+        const SIZE size = CurrentWindowSize();
+        const int width = static_cast<int>(size.cx);
+        const int height = static_cast<int>(size.cy);
         SetWindowPos(
             hwnd_,
             alwaysOnTop_ ? HWND_TOPMOST : HWND_NOTOPMOST,
