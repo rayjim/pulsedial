@@ -1,0 +1,33 @@
+# Build outputs
+build/
+out/
+
+# CMake generated files
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+compile_commands.json
+
+# Visual Studio / MSVC
+.vs/
+*.sln
+*.vcxproj
+*.vcxproj.filters
+*.vcxproj.user
+x64/
+x86/
+
+# MinGW / native artifacts
+*.exe
+*.dll
+*.lib
+*.a
+*.obj
+*.o
+*.pdb
+
+# OS / editor noise
+.DS_Store
+Thumbs.db
+.vscode/
+.devcontainer/
