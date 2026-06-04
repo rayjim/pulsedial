@@ -25,16 +25,28 @@ constexpr int kCompactHeight = 76;
 constexpr int kHistorySize = 60;
 constexpr UINT_PTR kSampleTimer = 1;
 constexpr UINT_PTR kFrameTimer = 2;
+constexpr UINT_PTR kDockHideTimer = 3;
 constexpr float kPi = 3.14159265358979323846f;
 constexpr DWORD kDwmwaUseImmersiveDarkMode = 20;
 constexpr int kHotkeyToggleClickThrough = 100;
 constexpr UINT kTrayIconId = 1;
 constexpr UINT kTrayMessage = WM_APP + 1;
+constexpr int kDockSnapDistance = 12;
+constexpr int kDockHandleSize = 8;
+constexpr UINT kDockHideDelayMs = 900;
+
+enum class DockEdge {
+    None,
+    Left,
+    Right,
+    Top
+};
 
 enum MenuId : UINT {
     kMenuAlwaysOnTop = 1000,
     kMenuClickThrough,
     kMenuCompactMode,
+    kMenuEdgeDock,
     kMenuOpacity60,
     kMenuOpacity80,
     kMenuOpacity100,
@@ -178,6 +190,7 @@ public:
     void TickFrame() {
         cpuVisible_ = Lerp(cpuVisible_, cpuTarget_, 0.18f);
         memVisible_ = Lerp(memVisible_, memTarget_, 0.12f);
+        StepDockAnimation();
         InvalidateRect(hwnd_, nullptr, FALSE);
     }
 
@@ -217,6 +230,7 @@ public:
             kMenuClickThrough,
             clickThrough_ ? L"Disable click-through" : L"Enable click-through");
         AppendMenuW(menu, MF_STRING | (compactMode_ ? MF_CHECKED : 0), kMenuCompactMode, L"Compact mode");
+        AppendMenuW(menu, MF_STRING | (edgeDockEnabled_ ? MF_CHECKED : 0), kMenuEdgeDock, L"Edge dock");
         AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
 
         HMENU opacityMenu = CreatePopupMenu();
@@ -252,6 +266,12 @@ public:
         case kMenuCompactMode:
             compactMode_ = !compactMode_;
             ApplyWindowOptions();
+            if (edgeDockEnabled_ && dockEdge_ != DockEdge::None) {
+                DockToEdge(dockEdge_, false);
+            }
+            break;
+        case kMenuEdgeDock:
+            SetEdgeDockEnabled(!edgeDockEnabled_);
             break;
         case kMenuOpacity60:
             opacity_ = 153;
@@ -291,6 +311,31 @@ public:
 
     bool IsClickThrough() const {
         return clickThrough_;
+    }
+
+    void HandleMouseMove(bool nonClient = false) {
+        if (edgeDockEnabled_ && dockHidden_) {
+            ShowDockExpanded();
+        }
+        TrackMouseLeave(nonClient);
+    }
+
+    void HandleMouseLeave() {
+        trackingMouse_ = false;
+        if (edgeDockEnabled_ && dockEdge_ != DockEdge::None && !dockHidden_) {
+            SetTimer(hwnd_, kDockHideTimer, kDockHideDelayMs, nullptr);
+        }
+    }
+
+    void HandleExitSizeMove() {
+        if (!edgeDockEnabled_) {
+            return;
+        }
+        TryDockNearEdge();
+    }
+
+    void HandleDockHideTimer() {
+        HideDock();
     }
 
     void HandleTrayMessage(LPARAM event) {
@@ -581,6 +626,22 @@ private:
         }
     }
 
+    void SetEdgeDockEnabled(bool enabled) {
+        edgeDockEnabled_ = enabled;
+        KillTimer(hwnd_, kDockHideTimer);
+        if (!edgeDockEnabled_) {
+            if (dockEdge_ != DockEdge::None) {
+                dockHidden_ = false;
+                dockExpandedRect_ = CalculateExpandedDockRect(dockEdge_);
+                AnimateTo(dockExpandedRect_);
+            }
+            dockHidden_ = false;
+            dockEdge_ = DockEdge::None;
+            return;
+        }
+        TryDockNearEdge();
+    }
+
     void ApplyWindowOptions() {
         LONG_PTR exStyle = GetWindowLongPtr(hwnd_, GWL_EXSTYLE);
         exStyle |= WS_EX_LAYERED | WS_EX_TOOLWINDOW;
@@ -605,6 +666,189 @@ private:
             width,
             height,
             SWP_NOACTIVATE | SWP_FRAMECHANGED);
+    }
+
+    void TrackMouseLeave(bool nonClient) {
+        if (trackingMouse_) {
+            return;
+        }
+
+        TRACKMOUSEEVENT event{};
+        event.cbSize = sizeof(event);
+        event.dwFlags = TME_LEAVE | (nonClient ? TME_NONCLIENT : 0);
+        event.hwndTrack = hwnd_;
+        if (TrackMouseEvent(&event)) {
+            trackingMouse_ = true;
+        }
+    }
+
+    void TryDockNearEdge() {
+        RECT rect{};
+        GetWindowRect(hwnd_, &rect);
+
+        const RECT workArea = GetCurrentWorkArea();
+        const int distanceLeft = std::abs(rect.left - workArea.left);
+        const int distanceRight = std::abs(workArea.right - rect.right);
+        const int distanceTop = std::abs(rect.top - workArea.top);
+
+        DockEdge edge = DockEdge::None;
+        int bestDistance = kDockSnapDistance + 1;
+        if (distanceLeft <= kDockSnapDistance && distanceLeft < bestDistance) {
+            edge = DockEdge::Left;
+            bestDistance = distanceLeft;
+        }
+        if (distanceRight <= kDockSnapDistance && distanceRight < bestDistance) {
+            edge = DockEdge::Right;
+            bestDistance = distanceRight;
+        }
+        if (distanceTop <= kDockSnapDistance && distanceTop < bestDistance) {
+            edge = DockEdge::Top;
+        }
+
+        if (edge == DockEdge::None) {
+            dockEdge_ = DockEdge::None;
+            dockHidden_ = false;
+            dockAnimating_ = false;
+            return;
+        }
+
+        DockToEdge(edge, true);
+    }
+
+    void DockToEdge(DockEdge edge, bool hideAfterDelay) {
+        dockEdge_ = edge;
+        dockHidden_ = false;
+        dockExpandedRect_ = CalculateExpandedDockRect(edge);
+        AnimateTo(dockExpandedRect_);
+        if (hideAfterDelay) {
+            SetTimer(hwnd_, kDockHideTimer, kDockHideDelayMs, nullptr);
+        }
+    }
+
+    void ShowDockExpanded() {
+        KillTimer(hwnd_, kDockHideTimer);
+        dockHidden_ = false;
+        dockExpandedRect_ = CalculateExpandedDockRect(dockEdge_);
+        AnimateTo(dockExpandedRect_);
+    }
+
+    void HideDock() {
+        if (!edgeDockEnabled_ || dockEdge_ == DockEdge::None) {
+            return;
+        }
+        dockHidden_ = true;
+        AnimateTo(CalculateHiddenDockRect(dockEdge_));
+    }
+
+    void StepDockAnimation() {
+        if (!dockAnimating_) {
+            return;
+        }
+
+        RECT current{};
+        GetWindowRect(hwnd_, &current);
+        RECT next{
+            StepToward(current.left, dockTargetRect_.left),
+            StepToward(current.top, dockTargetRect_.top),
+            StepToward(current.right, dockTargetRect_.right),
+            StepToward(current.bottom, dockTargetRect_.bottom),
+        };
+
+        const bool done =
+            std::abs(next.left - dockTargetRect_.left) <= 1 &&
+            std::abs(next.top - dockTargetRect_.top) <= 1 &&
+            std::abs(next.right - dockTargetRect_.right) <= 1 &&
+            std::abs(next.bottom - dockTargetRect_.bottom) <= 1;
+
+        if (done) {
+            next = dockTargetRect_;
+            dockAnimating_ = false;
+        }
+
+        SetWindowPos(
+            hwnd_,
+            nullptr,
+            next.left,
+            next.top,
+            next.right - next.left,
+            next.bottom - next.top,
+            SWP_NOACTIVATE | SWP_NOZORDER);
+    }
+
+    int StepToward(int current, int target) {
+        return current + static_cast<int>(std::round((target - current) * 0.35f));
+    }
+
+    void AnimateTo(RECT target) {
+        dockTargetRect_ = target;
+        dockAnimating_ = true;
+    }
+
+    RECT CalculateExpandedDockRect(DockEdge edge) {
+        const RECT workArea = GetCurrentWorkArea();
+        const SIZE size = CurrentWindowSize();
+        RECT current{};
+        GetWindowRect(hwnd_, &current);
+
+        int x = current.left;
+        int y = current.top;
+        const int left = static_cast<int>(workArea.left);
+        const int top = static_cast<int>(workArea.top);
+        const int right = static_cast<int>(workArea.right);
+        const int bottom = static_cast<int>(workArea.bottom);
+        const int width = static_cast<int>(size.cx);
+        const int height = static_cast<int>(size.cy);
+        if (edge == DockEdge::Left) {
+            x = left;
+            y = std::clamp(y, top, bottom - height);
+        } else if (edge == DockEdge::Right) {
+            x = right - width;
+            y = std::clamp(y, top, bottom - height);
+        } else if (edge == DockEdge::Top) {
+            x = std::clamp(x, left, right - width);
+            y = top;
+        }
+
+        return RECT{x, y, x + width, y + height};
+    }
+
+    RECT CalculateHiddenDockRect(DockEdge edge) {
+        RECT rect = dockExpandedRect_;
+        const int width = rect.right - rect.left;
+        const int height = rect.bottom - rect.top;
+        const RECT workArea = GetCurrentWorkArea();
+
+        if (edge == DockEdge::Left) {
+            rect.left = workArea.left - width + kDockHandleSize;
+            rect.right = rect.left + width;
+        } else if (edge == DockEdge::Right) {
+            rect.left = workArea.right - kDockHandleSize;
+            rect.right = rect.left + width;
+        } else if (edge == DockEdge::Top) {
+            rect.top = workArea.top - height + kDockHandleSize;
+            rect.bottom = rect.top + height;
+        }
+        return rect;
+    }
+
+    RECT GetCurrentWorkArea() {
+        HMONITOR monitor = MonitorFromWindow(hwnd_, MONITOR_DEFAULTTONEAREST);
+        MONITORINFO info{};
+        info.cbSize = sizeof(info);
+        if (GetMonitorInfoW(monitor, &info)) {
+            return info.rcWork;
+        }
+
+        RECT fallback{};
+        SystemParametersInfoW(SPI_GETWORKAREA, 0, &fallback, 0);
+        return fallback;
+    }
+
+    SIZE CurrentWindowSize() const {
+        return SIZE{
+            compactMode_ ? kCompactWidth : kWindowWidth,
+            compactMode_ ? kCompactHeight : kWindowHeight,
+        };
     }
 
     void AddTrayIcon() {
@@ -712,6 +956,13 @@ private:
     bool alwaysOnTop_ = true;
     bool clickThrough_ = false;
     bool compactMode_ = false;
+    bool edgeDockEnabled_ = false;
+    bool dockHidden_ = false;
+    bool dockAnimating_ = false;
+    bool trackingMouse_ = false;
+    DockEdge dockEdge_ = DockEdge::None;
+    RECT dockExpandedRect_{};
+    RECT dockTargetRect_{};
     bool previousCpuValid_ = false;
     FILETIME previousIdle_{};
     FILETIME previousKernel_{};
@@ -742,6 +993,7 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lPara
         UnregisterHotKey(hwnd, kHotkeyToggleClickThrough);
         KillTimer(hwnd, kSampleTimer);
         KillTimer(hwnd, kFrameTimer);
+        KillTimer(hwnd, kDockHideTimer);
         delete GetApp(hwnd);
         SetWindowLongPtr(hwnd, GWLP_USERDATA, 0);
         PostQuitMessage(0);
@@ -758,6 +1010,9 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lPara
                 app->Sample();
             } else if (wParam == kFrameTimer) {
                 app->TickFrame();
+            } else if (wParam == kDockHideTimer) {
+                KillTimer(hwnd, kDockHideTimer);
+                app->HandleDockHideTimer();
             }
         }
         return 0;
@@ -790,6 +1045,27 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lPara
             if (auto* app = GetApp(hwnd)) {
                 app->ToggleClickThrough();
             }
+        }
+        return 0;
+    case WM_MOUSEMOVE:
+        if (auto* app = GetApp(hwnd)) {
+            app->HandleMouseMove();
+        }
+        return 0;
+    case WM_NCMOUSEMOVE:
+        if (auto* app = GetApp(hwnd)) {
+            app->HandleMouseMove(true);
+        }
+        return DefWindowProc(hwnd, message, wParam, lParam);
+    case WM_MOUSELEAVE:
+    case WM_NCMOUSELEAVE:
+        if (auto* app = GetApp(hwnd)) {
+            app->HandleMouseLeave();
+        }
+        return 0;
+    case WM_EXITSIZEMOVE:
+        if (auto* app = GetApp(hwnd)) {
+            app->HandleExitSizeMove();
         }
         return 0;
     case kTrayMessage:

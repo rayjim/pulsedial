@@ -11,6 +11,7 @@ It is intentionally small:
 - Memory usage from `GlobalMemoryStatusEx`
 - 60-second in-memory history
 - Always-on-top, opacity, compact mode, and click-through controls
+- Edge dock mode for auto-hiding at the left, right, or top screen edge
 - Tray icon with menu access
 - No tray service, no persistent storage, no web runtime
 
@@ -97,8 +98,19 @@ Settings currently available:
 - Compact mode
 - Opacity: 60%, 80%, 100%
 - Refresh rate: 250 ms, 500 ms, 1000 ms
+- Edge dock
 - Show / Hide
 - Exit
+
+## Edge Dock
+
+Edge dock lets PulseDial tuck itself into the screen edge.
+
+1. Enable `Edge dock` from the right-click or tray menu.
+2. Drag PulseDial to the left, right, or top edge of the screen.
+3. Release it near the edge.
+4. PulseDial snaps to that edge and auto-hides after a short delay.
+5. Move the mouse over the visible edge handle to show it again.
 
 ## Visual Direction
 
