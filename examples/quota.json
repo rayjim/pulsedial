@@ -1,0 +1,18 @@
+{
+  "source": "codex",
+  "updatedAt": "2026-06-04T12:00:00Z",
+  "windows": [
+    {
+      "label": "5 HOURS",
+      "usedTokens": 420000,
+      "remainingTokens": 580000,
+      "resetIn": "03:42"
+    },
+    {
+      "label": "7 DAYS",
+      "usedTokens": 6800000,
+      "remainingTokens": 3200000,
+      "resetIn": "4d"
+    }
+  ]
+}

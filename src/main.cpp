@@ -10,6 +10,8 @@
 #include <cmath>
 #include <cstdio>
 #include <cwchar>
+#include <string>
+#include <vector>
 
 #pragma comment(lib, "d2d1")
 #pragma comment(lib, "dwrite")
@@ -42,11 +44,40 @@ enum class DockEdge {
     Top
 };
 
+enum class GadgetMode {
+    Auto,
+    System,
+    Quota
+};
+
+struct QuotaWindow {
+    std::wstring label;
+    unsigned long long usedTokens = 0;
+    unsigned long long remainingTokens = 0;
+    std::wstring resetIn;
+
+    bool HasData() const {
+        return usedTokens > 0 || remainingTokens > 0;
+    }
+
+    float UsedRatio() const {
+        const unsigned long long total = usedTokens + remainingTokens;
+        if (total == 0) {
+            return 0.0f;
+        }
+        const float ratio = static_cast<float>(usedTokens) / static_cast<float>(total);
+        return std::clamp(ratio, 0.0f, 1.0f);
+    }
+};
+
 enum MenuId : UINT {
     kMenuAlwaysOnTop = 1000,
     kMenuClickThrough,
     kMenuCompactMode,
     kMenuEdgeDock,
+    kMenuModeAuto,
+    kMenuModeSystem,
+    kMenuModeQuota,
     kMenuOpacity60,
     kMenuOpacity80,
     kMenuOpacity100,
@@ -161,6 +192,7 @@ public:
         }
 
         previousCpuValid_ = ReadCpuTimes(previousIdle_, previousKernel_, previousUser_);
+        LoadQuotaData();
         Sample();
         ApplyWindowOptions();
         AddTrayIcon();
@@ -185,6 +217,12 @@ public:
         memTarget_ = memory;
         cpuHistory_.Push(cpu);
         memHistory_.Push(memory);
+
+        ++quotaReloadTick_;
+        if (quotaReloadTick_ >= 30) {
+            quotaReloadTick_ = 0;
+            LoadQuotaData();
+        }
     }
 
     void TickFrame() {
@@ -205,12 +243,20 @@ public:
 
         DrawPanel();
         DrawHeader();
-        if (compactMode_) {
-            DrawCompact();
+        if (ShouldShowQuota()) {
+            if (compactMode_) {
+                DrawQuotaCompact();
+            } else {
+                DrawQuota();
+            }
         } else {
-            DrawGauge();
-            DrawMemory();
-            DrawHistory();
+            if (compactMode_) {
+                DrawCompact();
+            } else {
+                DrawGauge();
+                DrawMemory();
+                DrawHistory();
+            }
         }
 
         hr = renderTarget_->EndDraw();
@@ -223,6 +269,11 @@ public:
 
     void ShowContextMenu(POINT point) {
         HMENU menu = CreatePopupMenu();
+        HMENU modeMenu = CreatePopupMenu();
+        AppendMenuW(modeMenu, MF_STRING | (gadgetMode_ == GadgetMode::Auto ? MF_CHECKED : 0), kMenuModeAuto, L"Auto");
+        AppendMenuW(modeMenu, MF_STRING | (gadgetMode_ == GadgetMode::System ? MF_CHECKED : 0), kMenuModeSystem, L"System Dial");
+        AppendMenuW(modeMenu, MF_STRING | (gadgetMode_ == GadgetMode::Quota ? MF_CHECKED : 0), kMenuModeQuota, L"Quota Dial");
+        AppendMenuW(menu, MF_POPUP, reinterpret_cast<UINT_PTR>(modeMenu), L"Mode");
         AppendMenuW(menu, MF_STRING | (alwaysOnTop_ ? MF_CHECKED : 0), kMenuAlwaysOnTop, L"Always on top");
         AppendMenuW(
             menu,
@@ -231,6 +282,7 @@ public:
             clickThrough_ ? L"Disable click-through" : L"Enable click-through");
         AppendMenuW(menu, MF_STRING | (compactMode_ ? MF_CHECKED : 0), kMenuCompactMode, L"Compact mode");
         AppendMenuW(menu, MF_STRING | (edgeDockEnabled_ ? MF_CHECKED : 0), kMenuEdgeDock, L"Edge dock");
+        AppendMenuW(menu, MF_STRING | MF_DISABLED, 0, quotaAvailable_ ? L"Quota source: found" : L"Quota source: not found");
         AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
 
         HMENU opacityMenu = CreatePopupMenu();
@@ -272,6 +324,16 @@ public:
             break;
         case kMenuEdgeDock:
             SetEdgeDockEnabled(!edgeDockEnabled_);
+            break;
+        case kMenuModeAuto:
+            gadgetMode_ = GadgetMode::Auto;
+            break;
+        case kMenuModeSystem:
+            gadgetMode_ = GadgetMode::System;
+            break;
+        case kMenuModeQuota:
+            gadgetMode_ = GadgetMode::Quota;
+            LoadQuotaData();
             break;
         case kMenuOpacity60:
             opacity_ = 153;
@@ -492,6 +554,78 @@ private:
         DrawSparkline(memHistory_, D2D1::RectF(116.0f, 58.0f, 210.0f, 70.0f), brushMem_);
     }
 
+    void DrawQuota() {
+        DrawTextAt(L"CODE QUOTA", 22.0f, 39.0f, 90.0f, 18.0f, brushMuted_, formatSmallBold_);
+
+        DrawQuotaWindow(quotaWindows_[0], 22.0f, 61.0f);
+        DrawQuotaWindow(quotaWindows_[1], 22.0f, 112.0f);
+    }
+
+    void DrawQuotaCompact() {
+        const QuotaWindow& primary = quotaWindows_[0].HasData() ? quotaWindows_[0] : quotaWindows_[1];
+        ID2D1SolidColorBrush* valueBrush = QuotaBrush(primary.UsedRatio());
+
+        wchar_t text[64]{};
+        const auto left = FormatTokens(primary.remainingTokens);
+        std::swprintf(text, 64, L"%ls %ls left", primary.label.c_str(), left.c_str());
+        DrawTextAt(text, 18.0f, 39.0f, 150.0f, 18.0f, valueBrush, formatSmallBold_);
+        DrawQuotaBar(18.0f, 59.0f, 190.0f, primary.UsedRatio(), valueBrush);
+    }
+
+    void DrawQuotaWindow(const QuotaWindow& quota, float x, float y) {
+        if (!quota.HasData()) {
+            DrawTextAt(L"NO QUOTA DATA", x, y + 10.0f, 120.0f, 18.0f, brushMuted_, formatSmallBold_);
+            return;
+        }
+
+        const float usedRatio = quota.UsedRatio();
+        ID2D1SolidColorBrush* valueBrush = QuotaBrush(usedRatio);
+        const auto used = FormatTokens(quota.usedTokens);
+        const auto left = FormatTokens(quota.remainingTokens);
+
+        wchar_t percent[24]{};
+        std::swprintf(percent, 24, L"%d%% used", static_cast<int>(std::round(usedRatio * 100.0f)));
+
+        DrawTextAt(quota.label.c_str(), x, y, 70.0f, 18.0f, brushText_, formatSmallBold_);
+        DrawTextAt(percent, x + 203.0f, y, 58.0f, 18.0f, valueBrush, formatSmallBold_);
+
+        wchar_t detail[96]{};
+        std::swprintf(detail, 96, L"%ls used / %ls left", used.c_str(), left.c_str());
+        DrawTextAt(detail, x, y + 16.0f, 180.0f, 18.0f, brushMuted_, formatTiny_);
+        if (!quota.resetIn.empty()) {
+            wchar_t reset[48]{};
+            std::swprintf(reset, 48, L"reset %ls", quota.resetIn.c_str());
+            DrawTextAt(reset, x + 188.0f, y + 16.0f, 68.0f, 18.0f, brushMuted_, formatTiny_);
+        }
+
+        DrawQuotaBar(x, y + 34.0f, 256.0f, usedRatio, valueBrush);
+    }
+
+    void DrawQuotaBar(float x, float y, float width, float usedRatio, ID2D1SolidColorBrush* valueBrush) {
+        constexpr int segmentCount = 18;
+        constexpr float segmentGap = 3.0f;
+        const float segmentWidth = (width - segmentGap * (segmentCount - 1)) / segmentCount;
+        const int lit = static_cast<int>(std::round(usedRatio * segmentCount));
+
+        for (int i = 0; i < segmentCount; ++i) {
+            const auto rect = D2D1::RoundedRect(
+                D2D1::RectF(x + i * (segmentWidth + segmentGap), y, x + i * (segmentWidth + segmentGap) + segmentWidth, y + 8.0f),
+                2.0f,
+                2.0f);
+            renderTarget_->FillRoundedRectangle(rect, i < lit ? valueBrush : brushTrack_);
+        }
+    }
+
+    ID2D1SolidColorBrush* QuotaBrush(float usedRatio) {
+        if (usedRatio >= 0.90f) {
+            return brushDanger_;
+        }
+        if (usedRatio >= 0.70f) {
+            return brushMem_;
+        }
+        return brushCpu_;
+    }
+
     void DrawSparkline(const History& history, D2D1_RECT_F rect, ID2D1SolidColorBrush* brush) {
         const int count = history.Count();
         if (count < 2) {
@@ -610,6 +744,181 @@ private:
             (*format)->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_NEAR);
         }
         return hr;
+    }
+
+    bool ShouldShowQuota() const {
+        if (!quotaAvailable_) {
+            return false;
+        }
+        return gadgetMode_ == GadgetMode::Auto || gadgetMode_ == GadgetMode::Quota;
+    }
+
+    void LoadQuotaData() {
+        std::string json;
+        quotaAvailable_ = ReadQuotaFile(json) && ParseQuotaJson(json);
+    }
+
+    bool ReadQuotaFile(std::string& json) {
+        std::vector<std::wstring> paths = QuotaPaths();
+        for (const auto& path : paths) {
+            HANDLE file = CreateFileW(
+                path.c_str(),
+                GENERIC_READ,
+                FILE_SHARE_READ,
+                nullptr,
+                OPEN_EXISTING,
+                FILE_ATTRIBUTE_NORMAL,
+                nullptr);
+            if (file == INVALID_HANDLE_VALUE) {
+                continue;
+            }
+
+            const DWORD size = GetFileSize(file, nullptr);
+            if (size == INVALID_FILE_SIZE || size == 0 || size > 1024 * 1024) {
+                CloseHandle(file);
+                continue;
+            }
+
+            json.assign(size, '\0');
+            DWORD bytesRead = 0;
+            const BOOL ok = ReadFile(file, json.data(), size, &bytesRead, nullptr);
+            CloseHandle(file);
+            if (ok && bytesRead > 0) {
+                json.resize(bytesRead);
+                return true;
+            }
+        }
+        return false;
+    }
+
+    std::vector<std::wstring> QuotaPaths() {
+        std::vector<std::wstring> paths;
+
+        wchar_t localAppData[MAX_PATH]{};
+        if (GetEnvironmentVariableW(L"LOCALAPPDATA", localAppData, ARRAYSIZE(localAppData)) > 0) {
+            paths.push_back(std::wstring(localAppData) + L"\\PulseDial\\quota.json");
+        }
+
+        wchar_t modulePath[MAX_PATH]{};
+        if (GetModuleFileNameW(nullptr, modulePath, ARRAYSIZE(modulePath)) > 0) {
+            std::wstring path(modulePath);
+            const size_t slash = path.find_last_of(L"\\/");
+            if (slash != std::wstring::npos) {
+                paths.push_back(path.substr(0, slash + 1) + L"quota.json");
+            }
+        }
+
+        paths.push_back(L"quota.json");
+        return paths;
+    }
+
+    bool ParseQuotaJson(const std::string& json) {
+        std::array<QuotaWindow, 2> parsed{};
+        parsed[0].label = L"5 HOURS";
+        parsed[1].label = L"7 DAYS";
+
+        bool found = false;
+        found |= ParseQuotaWindow(json, "5 HOURS", parsed[0]);
+        found |= ParseQuotaWindow(json, "5H", parsed[0]);
+        found |= ParseQuotaWindow(json, "7 DAYS", parsed[1]);
+        found |= ParseQuotaWindow(json, "7D", parsed[1]);
+
+        if (!found) {
+            return false;
+        }
+
+        quotaWindows_ = parsed;
+        return quotaWindows_[0].HasData() || quotaWindows_[1].HasData();
+    }
+
+    bool ParseQuotaWindow(const std::string& json, const char* label, QuotaWindow& quota) {
+        const size_t labelPos = json.find(label);
+        if (labelPos == std::string::npos) {
+            return false;
+        }
+
+        const size_t objectStart = json.rfind('{', labelPos);
+        const size_t objectEnd = json.find('}', labelPos);
+        if (objectStart == std::string::npos || objectEnd == std::string::npos || objectEnd <= objectStart) {
+            return false;
+        }
+
+        const std::string object = json.substr(objectStart, objectEnd - objectStart + 1);
+        quota.usedTokens = ReadJsonNumber(object, "usedTokens");
+        quota.remainingTokens = ReadJsonNumber(object, "remainingTokens");
+        quota.resetIn = Widen(ReadJsonString(object, "resetIn"));
+        if (quota.label.empty()) {
+            quota.label = Widen(label);
+        }
+        return quota.HasData();
+    }
+
+    unsigned long long ReadJsonNumber(const std::string& object, const char* key) {
+        const std::string quotedKey = std::string("\"") + key + "\"";
+        size_t pos = object.find(quotedKey);
+        if (pos == std::string::npos) {
+            return 0;
+        }
+        pos = object.find(':', pos);
+        if (pos == std::string::npos) {
+            return 0;
+        }
+        ++pos;
+        while (pos < object.size() && (object[pos] == ' ' || object[pos] == '\t')) {
+            ++pos;
+        }
+
+        unsigned long long value = 0;
+        while (pos < object.size() && object[pos] >= '0' && object[pos] <= '9') {
+            value = value * 10 + static_cast<unsigned long long>(object[pos] - '0');
+            ++pos;
+        }
+        return value;
+    }
+
+    std::string ReadJsonString(const std::string& object, const char* key) {
+        const std::string quotedKey = std::string("\"") + key + "\"";
+        size_t pos = object.find(quotedKey);
+        if (pos == std::string::npos) {
+            return {};
+        }
+        pos = object.find(':', pos);
+        if (pos == std::string::npos) {
+            return {};
+        }
+        pos = object.find('"', pos);
+        if (pos == std::string::npos) {
+            return {};
+        }
+        const size_t start = pos + 1;
+        const size_t end = object.find('"', start);
+        if (end == std::string::npos) {
+            return {};
+        }
+        return object.substr(start, end - start);
+    }
+
+    std::wstring Widen(const std::string& value) {
+        std::wstring result;
+        result.reserve(value.size());
+        for (char ch : value) {
+            result.push_back(static_cast<unsigned char>(ch));
+        }
+        return result;
+    }
+
+    std::wstring FormatTokens(unsigned long long value) {
+        wchar_t text[32]{};
+        if (value >= 1000000ULL) {
+            const double millions = static_cast<double>(value) / 1000000.0;
+            std::swprintf(text, 32, L"%.1fM", millions);
+        } else if (value >= 1000ULL) {
+            const double thousands = static_cast<double>(value) / 1000.0;
+            std::swprintf(text, 32, L"%.0fK", thousands);
+        } else {
+            std::swprintf(text, 32, L"%llu", value);
+        }
+        return text;
     }
 
     void SetSampleInterval(UINT intervalMs) {
@@ -947,12 +1256,16 @@ private:
 
     History cpuHistory_;
     History memHistory_;
+    std::array<QuotaWindow, 2> quotaWindows_{QuotaWindow{L"5 HOURS"}, QuotaWindow{L"7 DAYS"}};
     float cpuTarget_ = 0.0f;
     float memTarget_ = 0.0f;
     float cpuVisible_ = 0.0f;
     float memVisible_ = 0.0f;
     UINT sampleIntervalMs_ = 1000;
+    UINT quotaReloadTick_ = 0;
     BYTE opacity_ = 204;
+    GadgetMode gadgetMode_ = GadgetMode::Auto;
+    bool quotaAvailable_ = false;
     bool alwaysOnTop_ = true;
     bool clickThrough_ = false;
     bool compactMode_ = false;

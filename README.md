@@ -12,6 +12,7 @@ It is intentionally small:
 - 60-second in-memory history
 - Always-on-top, opacity, compact mode, and click-through controls
 - Edge dock mode for auto-hiding at the left, right, or top screen edge
+- AI coding quota mode for 5-hour and 7-day token allowance
 - Tray icon with menu access
 - No tray service, no persistent storage, no web runtime
 
@@ -93,6 +94,7 @@ PulseDialSetup-x64.exe
 
 Settings currently available:
 
+- Mode: Auto, System Dial, Quota Dial
 - Always on top
 - Enable / Disable click-through
 - Compact mode
@@ -101,6 +103,46 @@ Settings currently available:
 - Edge dock
 - Show / Hide
 - Exit
+
+## Quota Dial
+
+Quota Dial shows token allowance progress instead of cost. It is designed for AI coding workflows where the useful question is "how much do I have left?"
+
+PulseDial starts in `Auto` mode:
+
+- If quota data is available, it shows Quota Dial.
+- If quota data is missing, it falls back to the CPU / memory System Dial.
+
+The first prototype reads local JSON data from:
+
+```text
+%LOCALAPPDATA%\PulseDial\quota.json
+```
+
+For quick testing, you can also place `quota.json` next to `PulseDial.exe`.
+
+Example:
+
+```json
+{
+  "source": "codex",
+  "updatedAt": "2026-06-04T12:00:00Z",
+  "windows": [
+    {
+      "label": "5 HOURS",
+      "usedTokens": 420000,
+      "remainingTokens": 580000,
+      "resetIn": "03:42"
+    },
+    {
+      "label": "7 DAYS",
+      "usedTokens": 6800000,
+      "remainingTokens": 3200000,
+      "resetIn": "4d"
+    }
+  ]
+}
+```
 
 ## Edge Dock
 
