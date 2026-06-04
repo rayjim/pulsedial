@@ -65,6 +65,21 @@ The installer:
 - Removes the start-at-login entry during uninstall.
 - Does not require administrator privileges.
 
+## Publishing a GitHub Release
+
+GitHub Actions builds and uploads the Windows x64 installer when a version tag is pushed.
+
+```sh
+git tag v0.1.0
+git push origin v0.1.0
+```
+
+The workflow publishes:
+
+```text
+PulseDialSetup-x64.exe
+```
+
 ## Prototype Controls
 
 - Drag anywhere on the gadget to move it.
