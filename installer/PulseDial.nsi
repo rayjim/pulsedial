@@ -71,6 +71,11 @@ Section "Start PulseDial when I sign in" SEC_AUTOSTART
   WriteRegStr HKCU "${APP_RUN_KEY}" "${APP_NAME}" '"$INSTDIR\${APP_EXE}"'
 SectionEnd
 
+Section "Install sample quota data" SEC_SAMPLE_QUOTA
+  SetOutPath "$INSTDIR"
+  File "/oname=quota.json" "..\examples\quota.json"
+SectionEnd
+
 Section "Uninstall"
   DeleteRegValue HKCU "${APP_RUN_KEY}" "${APP_NAME}"
   DeleteRegKey HKCU "${APP_UNINSTALL_KEY}"
@@ -80,6 +85,7 @@ Section "Uninstall"
   RMDir "$SMPROGRAMS\${APP_NAME}"
 
   Delete "$INSTDIR\${APP_EXE}"
+  Delete "$INSTDIR\quota.json"
   Delete "$INSTDIR\Uninstall.exe"
   RMDir "$INSTDIR"
 SectionEnd

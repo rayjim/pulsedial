@@ -62,6 +62,7 @@ The installer:
 
 - Installs `PulseDial.exe` to `%LOCALAPPDATA%\Programs\PulseDial`.
 - Creates Start Menu shortcuts.
+- Can install sample quota data for previewing Quota Dial.
 - Registers PulseDial in Windows Apps & Features for uninstall.
 - Enables start-at-login by default through the current user's `Run` registry key.
 - Removes the start-at-login entry during uninstall.
