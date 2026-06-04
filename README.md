@@ -42,6 +42,29 @@ The generated executable is written to:
 build/PulseDial.exe
 ```
 
+## Windows x64 Installer
+
+From Linux/WSL with `mingw-w64` and NSIS:
+
+```sh
+./scripts/build-release.sh
+```
+
+The generated installer is written to:
+
+```text
+dist/PulseDialSetup-x64.exe
+```
+
+The installer:
+
+- Installs `PulseDial.exe` to `%LOCALAPPDATA%\Programs\PulseDial`.
+- Creates Start Menu shortcuts.
+- Registers PulseDial in Windows Apps & Features for uninstall.
+- Enables start-at-login by default through the current user's `Run` registry key.
+- Removes the start-at-login entry during uninstall.
+- Does not require administrator privileges.
+
 ## Prototype Controls
 
 - Drag anywhere on the gadget to move it.
