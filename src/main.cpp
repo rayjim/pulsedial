@@ -562,23 +562,12 @@ private:
     }
 
     void DrawCombined() {
-        DrawTextAt(L"SYSTEM", 22.0f, 39.0f, 55.0f, 18.0f, brushMuted_, formatSmallBold_);
+        DrawMiniDial(L"CPU", cpuVisible_, D2D1::Point2F(86.0f, 82.0f), brushCpu_);
+        DrawMiniDial(L"MEM", memVisible_, D2D1::Point2F(214.0f, 82.0f), brushMem_);
 
-        wchar_t cpu[20]{};
-        wchar_t mem[20]{};
-        std::swprintf(cpu, 20, L"CPU %d%%", static_cast<int>(std::round(cpuVisible_ * 100.0f)));
-        std::swprintf(mem, 20, L"MEM %d%%", static_cast<int>(std::round(memVisible_ * 100.0f)));
-        ID2D1SolidColorBrush* cpuBrush = cpuVisible_ > 0.85f ? brushDanger_ : brushCpu_;
-        ID2D1SolidColorBrush* memBrush = memVisible_ > 0.85f ? brushDanger_ : brushMem_;
-
-        DrawTextAt(cpu, 82.0f, 39.0f, 62.0f, 18.0f, cpuBrush, formatSmallBold_);
-        DrawTextAt(mem, 152.0f, 39.0f, 62.0f, 18.0f, memBrush, formatSmallBold_);
-        DrawMiniBar(218.0f, 43.0f, 28.0f, cpuVisible_, cpuBrush);
-        DrawMiniBar(250.0f, 43.0f, 28.0f, memVisible_, memBrush);
-
-        DrawTextAt(L"CODE QUOTA", 22.0f, 62.0f, 90.0f, 18.0f, brushMuted_, formatSmallBold_);
-        DrawQuotaWindow(quotaWindows_[0], 22.0f, 83.0f);
-        DrawQuotaWindow(quotaWindows_[1], 22.0f, 132.0f);
+        DrawTextAt(L"CODE QUOTA", 22.0f, 87.0f, 90.0f, 18.0f, brushMuted_, formatSmallBold_);
+        DrawQuotaWindow(quotaWindows_[0], 22.0f, 101.0f);
+        DrawQuotaWindow(quotaWindows_[1], 22.0f, 138.0f);
     }
 
     void DrawCombinedCompact() {
@@ -658,6 +647,33 @@ private:
                 2.0f);
             renderTarget_->FillRoundedRectangle(rect, i < lit ? valueBrush : brushTrack_);
         }
+    }
+
+    void DrawMiniDial(const wchar_t* label, float value, D2D1_POINT_2F center, ID2D1SolidColorBrush* normalBrush) {
+        const float radius = 35.0f;
+        ID2D1SolidColorBrush* valueBrush = value > 0.85f ? brushDanger_ : normalBrush;
+
+        DrawTextAt(label, center.x - 12.0f, center.y - 45.0f, 30.0f, 16.0f, brushMuted_, formatTiny_);
+        DrawArc(center, radius, 205.0f, 335.0f, brushTrack_, 3.0f);
+        DrawArc(center, radius, 205.0f, 205.0f + 130.0f * Clamp01(value), valueBrush, 3.0f);
+
+        for (int i = 0; i <= 5; ++i) {
+            const float t = static_cast<float>(i) / 5.0f;
+            const float angle = DegreesToRadians(205.0f + 130.0f * t);
+            const auto p1 = D2D1::Point2F(center.x + std::cos(angle) * (radius + 1.0f), center.y + std::sin(angle) * (radius + 1.0f));
+            const auto p2 = D2D1::Point2F(center.x + std::cos(angle) * (radius - 5.0f), center.y + std::sin(angle) * (radius - 5.0f));
+            renderTarget_->DrawLine(p1, p2, i >= 4 ? brushDanger_ : brushMuted_, 1.0f);
+        }
+
+        const float needleAngle = DegreesToRadians(205.0f + 130.0f * Clamp01(value));
+        const auto needleEnd = D2D1::Point2F(center.x + std::cos(needleAngle) * 25.0f, center.y + std::sin(needleAngle) * 25.0f);
+        renderTarget_->DrawLine(center, needleEnd, valueBrush, 1.5f);
+        renderTarget_->FillEllipse(D2D1::Ellipse(center, 3.0f, 3.0f), brushText_);
+        renderTarget_->FillEllipse(D2D1::Ellipse(center, 1.5f, 1.5f), valueBrush);
+
+        wchar_t percent[16]{};
+        std::swprintf(percent, 16, L"%d%%", static_cast<int>(std::round(value * 100.0f)));
+        DrawTextAt(percent, center.x - 17.0f, center.y - 16.0f, 42.0f, 18.0f, valueBrush, formatSmallBold_);
     }
 
     void DrawMiniBar(float x, float y, float width, float ratio, ID2D1SolidColorBrush* valueBrush) {
