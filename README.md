@@ -111,7 +111,7 @@ Quota Dial shows token allowance progress instead of cost. It is designed for AI
 
 PulseDial starts in `Auto` mode:
 
-- If quota data is available, it shows Quota Dial.
+- If quota data is available, it shows system load and Quota Dial together.
 - If quota data is missing, it falls back to the CPU / memory System Dial.
 
 The first prototype reads local JSON data from:

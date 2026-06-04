@@ -245,9 +245,9 @@ public:
         DrawHeader();
         if (ShouldShowQuota()) {
             if (compactMode_) {
-                DrawQuotaCompact();
+                DrawCombinedCompact();
             } else {
-                DrawQuota();
+                DrawCombined();
             }
         } else {
             if (compactMode_) {
@@ -561,6 +561,50 @@ private:
         DrawQuotaWindow(quotaWindows_[1], 22.0f, 112.0f);
     }
 
+    void DrawCombined() {
+        DrawTextAt(L"SYSTEM", 22.0f, 39.0f, 55.0f, 18.0f, brushMuted_, formatSmallBold_);
+
+        wchar_t cpu[20]{};
+        wchar_t mem[20]{};
+        std::swprintf(cpu, 20, L"CPU %d%%", static_cast<int>(std::round(cpuVisible_ * 100.0f)));
+        std::swprintf(mem, 20, L"MEM %d%%", static_cast<int>(std::round(memVisible_ * 100.0f)));
+        ID2D1SolidColorBrush* cpuBrush = cpuVisible_ > 0.85f ? brushDanger_ : brushCpu_;
+        ID2D1SolidColorBrush* memBrush = memVisible_ > 0.85f ? brushDanger_ : brushMem_;
+
+        DrawTextAt(cpu, 82.0f, 39.0f, 62.0f, 18.0f, cpuBrush, formatSmallBold_);
+        DrawTextAt(mem, 152.0f, 39.0f, 62.0f, 18.0f, memBrush, formatSmallBold_);
+        DrawMiniBar(218.0f, 43.0f, 28.0f, cpuVisible_, cpuBrush);
+        DrawMiniBar(250.0f, 43.0f, 28.0f, memVisible_, memBrush);
+
+        DrawTextAt(L"CODE QUOTA", 22.0f, 62.0f, 90.0f, 18.0f, brushMuted_, formatSmallBold_);
+        DrawQuotaWindow(quotaWindows_[0], 22.0f, 83.0f);
+        DrawQuotaWindow(quotaWindows_[1], 22.0f, 132.0f);
+    }
+
+    void DrawCombinedCompact() {
+        ID2D1SolidColorBrush* cpuBrush = cpuVisible_ > 0.85f ? brushDanger_ : brushCpu_;
+        ID2D1SolidColorBrush* memBrush = memVisible_ > 0.85f ? brushDanger_ : brushMem_;
+        const QuotaWindow& primary = quotaWindows_[0].HasData() ? quotaWindows_[0] : quotaWindows_[1];
+        ID2D1SolidColorBrush* quotaBrush = QuotaBrush(primary.UsedRatio());
+
+        wchar_t system[48]{};
+        std::swprintf(
+            system,
+            48,
+            L"CPU %d%%  MEM %d%%",
+            static_cast<int>(std::round(cpuVisible_ * 100.0f)),
+            static_cast<int>(std::round(memVisible_ * 100.0f)));
+        DrawTextAt(system, 18.0f, 38.0f, 118.0f, 18.0f, brushText_, formatSmallBold_);
+        DrawMiniBar(144.0f, 42.0f, 28.0f, cpuVisible_, cpuBrush);
+        DrawMiniBar(178.0f, 42.0f, 28.0f, memVisible_, memBrush);
+
+        wchar_t quota[64]{};
+        const auto left = FormatTokens(primary.remainingTokens);
+        std::swprintf(quota, 64, L"%ls %ls left", primary.label.c_str(), left.c_str());
+        DrawTextAt(quota, 18.0f, 56.0f, 150.0f, 16.0f, quotaBrush, formatTiny_);
+        DrawMiniBar(144.0f, 61.0f, 62.0f, primary.UsedRatio(), quotaBrush);
+    }
+
     void DrawQuotaCompact() {
         const QuotaWindow& primary = quotaWindows_[0].HasData() ? quotaWindows_[0] : quotaWindows_[1];
         ID2D1SolidColorBrush* valueBrush = QuotaBrush(primary.UsedRatio());
@@ -614,6 +658,13 @@ private:
                 2.0f);
             renderTarget_->FillRoundedRectangle(rect, i < lit ? valueBrush : brushTrack_);
         }
+    }
+
+    void DrawMiniBar(float x, float y, float width, float ratio, ID2D1SolidColorBrush* valueBrush) {
+        const auto track = D2D1::RoundedRect(D2D1::RectF(x, y, x + width, y + 6.0f), 2.0f, 2.0f);
+        const auto fill = D2D1::RoundedRect(D2D1::RectF(x, y, x + width * Clamp01(ratio), y + 6.0f), 2.0f, 2.0f);
+        renderTarget_->FillRoundedRectangle(track, brushTrack_);
+        renderTarget_->FillRoundedRectangle(fill, valueBrush);
     }
 
     ID2D1SolidColorBrush* QuotaBrush(float usedRatio) {
