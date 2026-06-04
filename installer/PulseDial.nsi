@@ -6,7 +6,7 @@ Unicode true
 !define APP_NAME "PulseDial"
 !define APP_PUBLISHER "PulseDial"
 !define APP_EXE "PulseDial.exe"
-!define APP_VERSION "0.1.0"
+!define APP_VERSION "0.2.0"
 !define APP_UNINSTALL_KEY "Software\Microsoft\Windows\CurrentVersion\Uninstall\PulseDial"
 !define APP_RUN_KEY "Software\Microsoft\Windows\CurrentVersion\Run"
 
