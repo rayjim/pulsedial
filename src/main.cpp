@@ -22,8 +22,10 @@ namespace {
 
 constexpr int kWindowWidth = 300;
 constexpr int kWindowHeight = 180;
+constexpr int kQuotaWindowHeight = 224;
 constexpr int kCompactWidth = 230;
 constexpr int kCompactHeight = 76;
+constexpr int kQuotaCompactHeight = 96;
 constexpr int kHistorySize = 60;
 constexpr UINT_PTR kSampleTimer = 1;
 constexpr UINT_PTR kFrameTimer = 2;
@@ -327,13 +329,16 @@ public:
             break;
         case kMenuModeAuto:
             gadgetMode_ = GadgetMode::Auto;
+            ApplyWindowOptions();
             break;
         case kMenuModeSystem:
             gadgetMode_ = GadgetMode::System;
+            ApplyWindowOptions();
             break;
         case kMenuModeQuota:
             gadgetMode_ = GadgetMode::Quota;
             LoadQuotaData();
+            ApplyWindowOptions();
             break;
         case kMenuOpacity60:
             opacity_ = 153;
@@ -565,9 +570,9 @@ private:
         DrawMiniDial(L"CPU", cpuVisible_, D2D1::Point2F(86.0f, 82.0f), brushCpu_);
         DrawMiniDial(L"MEM", memVisible_, D2D1::Point2F(214.0f, 82.0f), brushMem_);
 
-        DrawTextAt(L"CODE QUOTA", 22.0f, 87.0f, 90.0f, 18.0f, brushMuted_, formatSmallBold_);
-        DrawQuotaWindow(quotaWindows_[0], 22.0f, 101.0f);
-        DrawQuotaWindow(quotaWindows_[1], 22.0f, 138.0f);
+        DrawTextAt(L"CODE QUOTA", 22.0f, 94.0f, 90.0f, 18.0f, brushMuted_, formatSmallBold_);
+        DrawQuotaWindow(quotaWindows_[0], 22.0f, 116.0f);
+        DrawQuotaWindow(quotaWindows_[1], 22.0f, 167.0f);
     }
 
     void DrawCombinedCompact() {
@@ -822,7 +827,14 @@ private:
 
     void LoadQuotaData() {
         std::string json;
+        const bool wasAvailable = quotaAvailable_;
         quotaAvailable_ = ReadQuotaFile(json) && ParseQuotaJson(json);
+        if (quotaAvailable_ != wasAvailable) {
+            ApplyWindowOptions();
+            if (edgeDockEnabled_ && dockEdge_ != DockEdge::None) {
+                DockToEdge(dockEdge_, false);
+            }
+        }
     }
 
     bool ReadQuotaFile(std::string& json) {
@@ -1221,9 +1233,10 @@ private:
     }
 
     SIZE CurrentWindowSize() const {
+        const bool quotaLayout = ShouldShowQuota();
         return SIZE{
             compactMode_ ? kCompactWidth : kWindowWidth,
-            compactMode_ ? kCompactHeight : kWindowHeight,
+            compactMode_ ? (quotaLayout ? kQuotaCompactHeight : kCompactHeight) : (quotaLayout ? kQuotaWindowHeight : kWindowHeight),
         };
     }
 

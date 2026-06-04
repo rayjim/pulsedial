@@ -113,6 +113,7 @@ PulseDial starts in `Auto` mode:
 
 - If quota data is available, it shows system load and Quota Dial together.
 - If quota data is missing, it falls back to the CPU / memory System Dial.
+- The window grows when quota data is shown and shrinks back when quota data is unavailable.
 
 The first prototype reads local JSON data from:
 
